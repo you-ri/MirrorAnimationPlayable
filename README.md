@@ -14,4 +14,4 @@ Assets/Sample/MirroringPlayableSample/MirroringPlayableSample.unity
 
 MIT
 
-"Assets/Extrival" Folders License below to their licenses.
+"Assets/Extrival" Folders CC-BY-NC-ND-4.0 License.
