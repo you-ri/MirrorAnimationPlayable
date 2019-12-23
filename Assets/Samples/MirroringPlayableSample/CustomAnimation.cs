@@ -1,11 +1,7 @@
 using System.Collections.Generic;
-using System.Linq;
-
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.Playables;
 using UnityEngine.Animations;
-using Unity.Collections;
 using System.Collections;
 
 
@@ -13,8 +9,9 @@ namespace Lilium
 {
 
     /// <summary>
-    /// 拡張アニメーション制御
+    /// カスタムアニメーション制御
     /// </summary>
+    [RequireComponent(typeof(Animator))]
     public class CustomAnimation : MonoBehaviour
     {
         /// <summary>
@@ -98,14 +95,13 @@ namespace Lilium
 
         public string currentStateName { get; private set; }
 
-        PlayableGraph _graph;
-
-        AnimationMixerPlayable _mixer;
-        AnimationClipPlayable _preClipPlayable;
-        AnimationClipPlayable _currentClipPlayable;
-        AnimationScriptPlayable _mirroringPlayable;
-        MirroringPlayableJob _mirroringPlayableJob;
-        Coroutine _playAnimationCoroutine;
+        private PlayableGraph _graph;
+        private AnimationMixerPlayable _mixer;
+        private AnimationClipPlayable _preClipPlayable;
+        private AnimationClipPlayable _currentClipPlayable;
+        private AnimationScriptPlayable _mirrorPosePlayable;
+        private MirrorPoseJob _mirrorPoseJob;
+        private Coroutine _playAnimationCoroutine;
 
         public StateInfo FindStateInfo (string stateName)
         {
@@ -129,41 +125,42 @@ namespace Lilium
         void OnEnable ()
         {
             // output <- _mirroringPlayable <- _mixer
-            _graph = PlayableGraph.Create ($"{gameObject.name}.Animatrix");
+            _graph = PlayableGraph.Create ($"{gameObject.name}.CustomAnimation");
 
             var output = AnimationPlayableOutput.Create (_graph, name, animator);
 
             _mixer = AnimationMixerPlayable.Create (_graph, 2, true);
 
-            _mirroringPlayableJob = MirroringPlayableJob.Create (animator.BindStreamTransform (transform), mirroringTransforms.Length, mirroringConstraints.Length) ;
-            _mirroringPlayable = AnimationScriptPlayable.Create (_graph, _mirroringPlayableJob);
-            _mirroringPlayable.AddInput (_mixer, 0, 1.0f);
+            _mirrorPoseJob = MirrorPoseJob.Create (animator.BindStreamTransform (transform), mirroringTransforms.Length, mirroringConstraints.Length) ;
+            _mirrorPosePlayable = AnimationScriptPlayable.Create (_graph, _mirrorPoseJob);
+            _mirrorPosePlayable.AddInput (_mixer, 0, 1.0f);
 
-            output.SetSourcePlayable (_mirroringPlayable);
+            output.SetSourcePlayable (_mirrorPosePlayable);
 
-            // ミラーリング設定
-            var mirroringPostures = new MirroringPlayableJob.MirroringPosture[mirroringTransforms.Length];
-            for (int i = 0; i < mirroringPostures.Length; i++) {
-                mirroringPostures[i].source = animator.BindStreamTransform (mirroringTransforms[i].source);
-                mirroringPostures[i].driven = animator.BindStreamTransform (mirroringTransforms[i].driven);
+            // ミラーリングコピー
+            var mirroringTransformData = new MirrorPoseJob.MirroringTransform[mirroringTransforms.Length];
+            for (int i = 0; i < mirroringTransformData.Length; i++) {
+                mirroringTransformData[i].source = animator.BindStreamTransform (mirroringTransforms[i].source);
+                mirroringTransformData[i].driven = animator.BindStreamTransform (mirroringTransforms[i].driven);
             }
-            _mirroringPlayableJob.mirroringTransforms.CopyFrom (mirroringPostures);
+            _mirrorPoseJob.mirroringTransforms.CopyFrom (mirroringTransformData);
 
-            var mirroringParentConstraintsData = new MirroringPlayableJob.MirroringConstrant[mirroringConstraints.Length];
-            for (int i = 0; i < mirroringParentConstraintsData.Length; i++) {
-                mirroringParentConstraintsData[i].driven = animator.BindStreamTransform (mirroringConstraints[i].driven);
-                mirroringParentConstraintsData[i].source = animator.BindStreamTransform (mirroringConstraints[i].mirrorParent);
+            // ミラーリング拘束
+            var mirroringConstraintsData = new MirrorPoseJob.MirroringConstrant[mirroringConstraints.Length];
+            for (int i = 0; i < mirroringConstraintsData.Length; i++) {
+                mirroringConstraintsData[i].driven = animator.BindStreamTransform (mirroringConstraints[i].driven);
+                mirroringConstraintsData[i].source = animator.BindStreamTransform (mirroringConstraints[i].mirrorParent);
             }
-            _mirroringPlayableJob.mirroringConstrants.CopyFrom (mirroringParentConstraintsData);
+            _mirrorPoseJob.mirroringConstrants.CopyFrom (mirroringConstraintsData);
 
-            _mirroringPlayable.SetJobData (_mirroringPlayableJob);
+            _mirrorPosePlayable.SetJobData (_mirrorPoseJob);
 
             _graph.Play ();
         }
 
         void OnDisable ()
         {
-            _mirroringPlayableJob.Dispose ();
+            _mirrorPoseJob.Dispose ();
             _graph.Destroy ();
         }
 
@@ -192,10 +189,10 @@ namespace Lilium
         {
             if (!enabled) return;
 
-            var _animatrixPlayableJob = _mirroringPlayable.GetJobData<MirroringPlayableJob> ();
-            _animatrixPlayableJob.isMirror = mirror;
+            var _animatrixPlayableJob = _mirrorPosePlayable.GetJobData<MirrorPoseJob> ();
+            _animatrixPlayableJob.mirror = mirror;
             _animatrixPlayableJob.debug = debug;
-            _mirroringPlayable.SetJobData (_animatrixPlayableJob);
+            _mirrorPosePlayable.SetJobData (_animatrixPlayableJob);
         }
 
 

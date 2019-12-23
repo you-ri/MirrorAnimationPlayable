@@ -1,47 +1,13 @@
 ﻿using UnityEngine;
-using UnityEngine.Playables;
-using System;
 
 #if UNITY_2019_3_OR_NEWER
 using UnityEngine.Animations;
 #else
 using UnityEngine.Experimental.Animations;
 #endif
-using Unity.Collections;
-
 
 namespace Lilium
 {
-
-    /// <summary>
-    /// based on: com.unity.animation.rigging@0.2.5-preview\Runtime\Utils\AffineTransform
-    /// </summary>
-    [System.Serializable]
-    public struct AffineTransform
-    {
-        public Vector3 position;
-        public Quaternion rotation;
-
-        public AffineTransform (Vector3 p, Quaternion r)
-        {
-            position = p;
-            rotation = r;
-        }
-
-        public Vector3 Transform (Vector3 p) =>
-            rotation * p + position;
-
-        public AffineTransform Inverse ()
-        {
-            var invR = Quaternion.Inverse (rotation);
-            return new AffineTransform (invR * -position, invR);
-        }
-
-
-        public static AffineTransform operator * (AffineTransform lhs, AffineTransform rhs) =>
-            new AffineTransform (lhs.Transform (rhs.position), lhs.rotation * rhs.rotation);
-    }
-
 
     /// <summary>
     /// based on: https://forum.unity.com/threads/playables-api-mirroring-clips-and-directorupdatemode-manual.504533/
@@ -133,10 +99,10 @@ namespace Lilium
             }
 
 
-            humanStream.bodyLocalPosition = Mirrored(humanStream.bodyLocalPosition);
+            humanStream.bodyLocalPosition = Mirrored (humanStream.bodyLocalPosition);
 
             // mirror rotation (invert Y axis angle)
-            humanStream.bodyLocalRotation = Mirrored(humanStream.bodyLocalRotation);
+            humanStream.bodyLocalRotation = Mirrored (humanStream.bodyLocalRotation);
 
             // swap ik
             Vector3[] goalPositions = new Vector3[4];
@@ -155,8 +121,8 @@ namespace Lilium
             }
             for (int i = 0; i < 4; i++) {
                 int j = (i + 1) % 2 + (i / 2) * 2;                  // make [1, 0, 3, 2]
-                humanStream.SetGoalLocalPosition (AvatarIKGoal.LeftFoot + i, Mirrored(goalPositions[j]));
-                humanStream.SetGoalLocalRotation (AvatarIKGoal.LeftFoot + i, Mirrored(goalRotations[j]));
+                humanStream.SetGoalLocalPosition (AvatarIKGoal.LeftFoot + i, Mirrored (goalPositions[j]));
+                humanStream.SetGoalLocalRotation (AvatarIKGoal.LeftFoot + i, Mirrored (goalRotations[j]));
                 humanStream.SetGoalWeightPosition (AvatarIKGoal.LeftFoot + i, goalWeightPositons[j]);
                 humanStream.SetGoalWeightRotation (AvatarIKGoal.LeftFoot + i, goalWeightRotations[j]);
                 humanStream.SetHintPosition (AvatarIKHint.LeftKnee + i, hintPositions[j]);
@@ -181,117 +147,6 @@ namespace Lilium
         public static AffineTransform Mirrored (AffineTransform value)
         {
             return new AffineTransform (Mirrored (value.position), Mirrored (value.rotation));
-        }
-
-    }
-
-    public struct MirroringPlayableJob : IAnimationJob, IDisposable
-    {
-
-        public struct MirroringConstrant
-        {
-            public TransformStreamHandle driven;
-            public TransformStreamHandle source;
-        }
-
-        public struct MirroringPosture
-        {
-            public TransformStreamHandle source;
-            public TransformStreamHandle driven;
-        }
-
-        public bool debug;
-        public bool isMirror;
-
-        public TransformStreamHandle root;
-
-        public NativeArray<MirroringPosture> mirroringTransforms;
-        public NativeArray<MirroringConstrant> mirroringConstrants;
-
-        public void ProcessRootMotion (AnimationStream stream) { }
-
-        public void ProcessAnimation (AnimationStream stream)
-        {
-            Vector3 rootPosition;
-            Quaternion rootRotation;
-            root.GetGlobalTR (stream, out rootPosition, out rootRotation);
-            var rootTx = new AffineTransform (rootPosition, rootRotation);
-
-            var mirroredTransforms = new NativeArray<AffineTransform> (mirroringTransforms.Length, Allocator.Temp);
-
-            // 追加トランスフォームのミラーリング計算
-            if (isMirror) {
-                for (int i = 0; i < mirroringTransforms.Length; i++) {
-
-                    if (!mirroringTransforms[i].source.IsValid (stream)) continue;
-                    if (!mirroringTransforms[i].driven.IsValid (stream)) continue;
-
-                    Vector3 position;
-                    Quaternion rotation;
-                    mirroringTransforms[i].source.GetGlobalTR (stream, out position, out rotation);
-
-                    var drivenTx = new AffineTransform (position, rotation);
-                    drivenTx = rootTx.Inverse() * drivenTx;
-                    drivenTx = AnimationStreamMirrorExtensions.Mirrored (drivenTx);
-                    drivenTx = rootTx * drivenTx;
-                    mirroredTransforms[i] = drivenTx;
-                }
-            }
-
-
-            // Humanoid ミラーリング
-            if (stream.isHumanStream) {
-                AnimationHumanStream humanStream = stream.AsHuman ();
-
-                if (isMirror) {
-                    humanStream.MirrorPose ();
-                }
-
-                humanStream.SolveIK ();
-            }
-
-            // 追加トランスフォームのミラーリング適用
-            if (isMirror) {
-                for (int i = 0; i < mirroringTransforms.Length; i++) {
-
-                    if (!mirroringTransforms[i].source.IsValid (stream)) continue;
-                    if (!mirroringTransforms[i].driven.IsValid (stream)) continue;
-
-                    mirroringTransforms[i].driven.SetGlobalTR (stream, mirroredTransforms[i].position, mirroredTransforms[i].rotation, false);
-                }
-            }
-
-            // 追加トランスフォームのミラーリング拘束
-            if (isMirror) {
-                for (int i = 0; i < mirroringConstrants.Length; i++) {
-
-                    if (!mirroringConstrants[i].source.IsValid (stream)) continue;
-                    if (!mirroringConstrants[i].driven.IsValid (stream)) continue;
-
-                    Vector3 position;
-                    Quaternion rotation;
-                    mirroringConstrants[i].source.GetGlobalTR (stream, out position, out rotation);
-                    mirroringConstrants[i].driven.SetGlobalTR (stream, position, rotation, false);
-                }
-            }
-
-
-        }
-
-        public static MirroringPlayableJob Create (TransformStreamHandle root, int mirroringTransformsLength, int mirroringParentConstraintsLength)
-        {
-            return new MirroringPlayableJob {
-                isMirror = false,
-                root = root,
-                mirroringTransforms = new NativeArray<MirroringPosture> (mirroringTransformsLength, Allocator.Persistent, NativeArrayOptions.UninitializedMemory),
-                mirroringConstrants = new NativeArray<MirroringConstrant> (mirroringParentConstraintsLength, Allocator.Persistent, NativeArrayOptions.UninitializedMemory)
-            };
-        }
-
-        public void Dispose ()
-        {
-            mirroringTransforms.Dispose ();
-            mirroringConstrants.Dispose ();
         }
 
     }
